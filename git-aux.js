@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 var exec = require("child_process").exec;
+var spawn = require("child_process").spawn;
 var path = require("path");
 var fs = require("fs");
 var util = require("util");
@@ -27,6 +28,10 @@ function die(message, exception) {
     }
 
     console.log(message);
+
+    if(DEBUG) {
+        throw exception;
+    }
 
     process.exit(1);
 }
@@ -134,6 +139,117 @@ function init(git_root, basedir) {
     });
 }
 
+function rm(file) {
+    var promise = new Promise();
+
+    fs.stat(file, function(err, stats) {
+        if(err) {
+            if(err.code === "ENOENT") {
+                return promise.fulfill();
+            } else {
+                die("Unable to stat file", err);
+            }   
+        }
+
+        if(stats.isDirectory()) {
+            fs.readdir(file, function(err, files) {
+                var count = files.length;
+
+                function finish() {
+                    fs.rmdir(file, function(err) {
+                        if(err) {
+                            die("Unable to remove dir", err);
+                        }
+
+                        promise.fulfill();
+                    });
+                }
+
+                if(count === 0) {
+                    finish();
+                } else {
+                    files.forEach(function(f) {
+                        rm(path.join(file, f)).then(function() {
+                            count--;
+
+                            if(count === 0) {
+                                finish();
+                            }
+                        });
+                    });
+                }
+            });
+        } else {
+            fs.unlink(file, function(err) {
+                if(err) {
+                    die("Unable to delete file", err);
+                }
+
+                promise.fulfill();
+            });
+        }
+    });
+
+    return promise;
+}
+
+function copy(src, dest) {
+    var promise = new Promise();
+
+    rm(dest).then(function() {
+        fs.stat(src, function(err, stats) {
+            var is, os;
+
+            if(err) {
+                if(err.code === "ENOENT") {
+                    promise.fulfill();
+                } else {
+                    die("Unable to stat file", err);
+                }
+            }
+
+            if(stats.isDirectory()) {
+                fs.mkdir(dest, function(err) {
+                    if(err) {
+                        die("Unable to create directory", err);
+                    }
+
+                    fs.readdir(src, function(err, files) {
+                        var count = files.length;
+
+                        if(count === 0) {
+                            promise.fulfill();
+                        }
+
+                        files.forEach(function(file) {
+                            copy(path.join(src, file), path.join(dest, file)).then(function() {
+                                count--;
+
+                                if(count === 0) {
+                                    promise.fulfill();
+                                }
+                            });
+                        });
+                    });
+                });
+            } else {
+                is = fs.createReadStream(src);
+                os = fs.createWriteStream(dest);
+
+                util.pump(is, os, function(err) {
+                    if(err) {
+                        die("Failed copying file", err);
+                    }
+
+                    promise.fulfill();
+                });
+            }
+        });
+    });
+
+    return promise;
+}
+
 function add(git_root, config, files) {
     files.forEach(function(file) {
         var relative_path = path.resolve(process.cwd(), file);
@@ -145,20 +261,11 @@ function add(git_root, config, files) {
 
             debug("Adding:", relative_path);
 
-            mkdir(path.dirname(path.join(git_root, relative_path))).then(function() {
-                var is = fs.createReadStream(path.join(config.basedir, relative_path));
-                os = fs.createWriteStream(path.join(git_root, relative_path));
-
-                util.pump(is, os, function(err) {
+            copy(path.join(config.basedir, relative_path), path.join(git_root, relative_path)).then(function() {
+                exec("git add " + path.join(git_root, relative_path), function(err) {
                     if(err) {
-                        die("Failed copying file", err);
+                        die("Failed adding file to git", err);
                     }
-
-                    exec("git add " + path.join(git_root, relative_path), function(err) {
-                        if(err) {
-                            die("Failed adding file to git", err);
-                        }
-                    });
                 });
             });
         } else {
@@ -181,6 +288,10 @@ function get_files(dir) {
 
         count = files.length;
 
+        if(count === 0) {
+            promise.fulfill(output);
+        }
+
         files.forEach(function(file) {
             fs.stat(path.join(dir, file), function(err, stats) {
                 if(err) {
@@ -193,16 +304,13 @@ function get_files(dir) {
                     output.push(path.join(dir, file));
 
                     if(count === 0) {
-                        console.log("File");
                         promise.fulfill(output);
                     }
                 } else if(stats.isDirectory()) {
                     get_files(path.join(dir, file)).then(function(sub_dir) {
-                        //output = output.concat(sub_dir);
-
-                        output.push(sub_dir);
-
                         count--;
+
+                        output = output.concat(sub_dir);
 
                         if(count === 0) {
                             promise.fulfill(output);
@@ -212,7 +320,6 @@ function get_files(dir) {
                     count--;
 
                     if(count === 0) {
-                        console.log("Bum");
                         promise.fulfill(output);
                     }
                 }
@@ -223,25 +330,38 @@ function get_files(dir) {
     return promise;
 }
 
-get_files("/home/steve/code/git-aux").then(function(files) {
+get_files("/home/steve/code/git-aux/test/repo").then(function(files) {
     console.log(files);
 });
 
 function sync(git_root, config) {
-    // First stash
-    exec("git stash", function(err) {
-        var count;
+    fs.readdir(git_root, function(err, files) {
+        var count = files.length - 1;
 
-        if(err) {
-            die("Failed to stash", err);
+        function finish() {
+            spawn("git", ["add", "-p"], {stdio: "inherit"});
         }
+
+        if(count === 0) {
+            finish();
+        }
+
+        files.forEach(function(file) {
+            if(file !== ".git") {
+                debug("Syncing: " + file);
+
+                file = path.relative(git_root, path.join(git_root, file));
+
+                copy(path.join(config.basedir, file), path.join(git_root, file)).then(function() {
+                    count--;
+
+                    if(count === 0) {
+                        finish();
+                    }
+                });
+            }
+        });
     });
-
-    // Get file list
-
-    // Stash pop
-
-    // Copy contents from basedir
 }
 
 // Check the parameters
@@ -252,7 +372,6 @@ if(process.argv.length < 3) {
 }
 
 // Get the config
-/*
 get_git_root().then(function(git_root) {
     get_config(git_root).then(function(config) {
         var command = process.argv[2];
@@ -286,6 +405,12 @@ get_git_root().then(function(git_root) {
 
             add(git_root, config, args);
         } else if(command === "sync") {
+            if(args.length !== 0) {
+                help();
+                process.exit(1);
+            }
+
+            sync(git_root, config);
         } else if(command === "apply") {
         } else {
             console.log("unknown command:", command);
@@ -294,4 +419,3 @@ get_git_root().then(function(git_root) {
         }
     });
 });
-*/
