@@ -8,7 +8,7 @@ var util = require("util");
 
 var Promise = require("./lib/promise");
 
-var DEBUG = true;
+var DEBUG = false;
 
 // Some standard helpers
 
@@ -330,9 +330,43 @@ function get_files(dir) {
     return promise;
 }
 
-get_files("/home/steve/code/git-aux/test/repo").then(function(files) {
-    console.log(files);
-});
+function walk(p, callback) {
+    var promise = new Promise();
+
+    fs.stat(p, function(err, stats) {
+        if(err) {
+            die("Failed to stat file", err);
+        }
+
+        if(stats.isDirectory()) {
+            fs.readdir(p, function(err, files) {
+                if(err) {
+                    die("Couldn't read dir", err);
+                }
+
+                var count = files.length;
+
+                if(count === 0) {
+                    callback(p, stats).then(promise.fulfill);
+                }
+
+                files.forEach(function(file) {
+                    walk(path.join(p, file), callback).then(function() {
+                        count--;
+
+                        if(count === 0) {
+                            callback(p, stats).then(promise.fulfill);
+                        }
+                    });
+                });
+            });
+        } else {
+            callback(p, stats).then(promise.fulfill);
+        }
+    });
+
+    return promise;
+}
 
 function sync(git_root, config) {
     get_files(git_root).then(function(files) {
@@ -345,7 +379,34 @@ function sync(git_root, config) {
         count = files.length;
 
         function finish() {
-            spawn("git", ["add", "-p"], {stdio: "inherit"});
+            // Remove empty dirs
+            walk(git_root, function(f, stats) {
+                var promise = new Promise();
+
+                if(!new RegExp("^" + path.join(git_root, ".git")).test(f)
+                &&
+                stats.isDirectory()) {
+                    fs.readdir(f, function(err, files) {
+                        if(files.length === 0) {
+                            fs.rmdir(f, function(err) {
+                                if(err) {
+                                    die("Unable to rmdir", err);
+                                }
+
+                                promise.fulfill();
+                            });
+                        } else {
+                            promise.fulfill();
+                        }
+                    });
+                } else {
+                    promise.fulfill();
+                }
+
+                return promise;
+            }).then(function() {
+                spawn("git", ["add", "-p"], {stdio: "inherit"});
+            });
         }
 
         if(count === 0) {
@@ -382,7 +443,9 @@ function sync(git_root, config) {
 }
 
 function apply(git_root, config) {
-    exec("git stash", function(err) {
+    exec("git stash -u", function(err, stdout) {
+        var stashed = !/^No local changes/.test(stdout);
+
         if(err) {
             die("Unable to stash", err);
         }
@@ -391,7 +454,9 @@ function apply(git_root, config) {
             var count = files.length - 1;
 
             function finish() {
-                exec("git stash pop");
+                if(stashed) {
+                    exec("git stash pop");
+                }
             }
 
             if(count === 0) {
@@ -404,7 +469,7 @@ function apply(git_root, config) {
 
                     file = path.relative(git_root, path.join(git_root, file));
 
-                    copy(path.join(config.basedir, file), path.join(git_root, file)).then(function() {
+                    copy(path.join(git_root, file), path.join(config.basedir, file)).then(function() {
                         count--;
 
                         if(count === 0) {
