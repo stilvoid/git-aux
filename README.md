@@ -6,6 +6,10 @@ Using git-aux, you can create a repository, add files to it from a chosen folder
 
 Using git's already-powerful branching, merging, and rebasing, you can keep modified versions of a home folder in sync.
 
+## Usage
+
+To use git-aux, just add it to your path and it will be usable either as `git-aux` or `git aux`.
+
 ## Commands
 
 ### `git aux init <basedir>`
