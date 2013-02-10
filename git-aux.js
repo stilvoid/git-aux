@@ -335,8 +335,14 @@ get_files("/home/steve/code/git-aux/test/repo").then(function(files) {
 });
 
 function sync(git_root, config) {
-    fs.readdir(git_root, function(err, files) {
-        var count = files.length - 1;
+    get_files(git_root).then(function(files) {
+        var count;
+
+        files = files.filter(function(f) {
+            return !new RegExp("^" + path.join(git_root, ".git")).test(f);
+        });
+
+        count = files.length;
 
         function finish() {
             spawn("git", ["add", "-p"], {stdio: "inherit"});
@@ -347,19 +353,66 @@ function sync(git_root, config) {
         }
 
         files.forEach(function(file) {
-            if(file !== ".git") {
-                debug("Syncing: " + file);
+            debug("Syncing: " + file);
 
-                file = path.relative(git_root, path.join(git_root, file));
+            file = path.relative(git_root, file);
 
-                copy(path.join(config.basedir, file), path.join(git_root, file)).then(function() {
-                    count--;
+            fs.exists(path.join(config.basedir, file), function(exists) {
+                if(exists) {
+                    copy(path.join(config.basedir, file), path.join(git_root, file)).then(function() {
+                        count--;
 
-                    if(count === 0) {
-                        finish();
-                    }
-                });
+                        if(count === 0) {
+                            finish();
+                        }
+                    });
+                } else {
+                    rm(path.join(git_root, file)).then(function() {
+                        count--;
+
+                        if(count === 0) {
+                            finish();
+                        }
+                    });
+                }
+            });
+
+        });
+    });
+}
+
+function apply(git_root, config) {
+    exec("git stash", function(err) {
+        if(err) {
+            die("Unable to stash", err);
+        }
+
+        fs.readdir(git_root, function(err, files) {
+            var count = files.length - 1;
+
+            function finish() {
+                exec("git stash pop");
             }
+
+            if(count === 0) {
+                finish();
+            }
+
+            files.forEach(function(file) {
+                if(file !== ".git") {
+                    debug("Syncing: " + file);
+
+                    file = path.relative(git_root, path.join(git_root, file));
+
+                    copy(path.join(config.basedir, file), path.join(git_root, file)).then(function() {
+                        count--;
+
+                        if(count === 0) {
+                            finish();
+                        }
+                    });
+                }
+            });
         });
     });
 }
@@ -412,6 +465,12 @@ get_git_root().then(function(git_root) {
 
             sync(git_root, config);
         } else if(command === "apply") {
+            if(args.length !== 0) {
+                help();
+                process.exit(1);
+            }
+
+            apply(git_root, config);
         } else {
             console.log("unknown command:", command);
             help();
