@@ -1,1 +1,3 @@
-git-aux.js
+#!/bin/sh
+
+node $(dirname $0)/git-aux.js $*
