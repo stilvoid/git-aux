@@ -16,8 +16,6 @@ To use git-aux, just add it to your path and it will be usable either as `git-au
 
 When in a git repository, initialise git aux to map the repository root to the specified directory.
 
-Under the hood, create a .git/aux.json containing the base dir
-
 ### `git aux add <file>`
 
 If the given file is not within the git aux base dir, an error is raise.
@@ -27,8 +25,6 @@ Otherwise, add the chosen file to the repository.
 ### `git aux sync`
 
 Check all files that have been `git aux add`ed for changes outside of the repository and interactively merge them in.
-
-Under the hood, loop through all files, copy from basedir and then `git add -p`
 
 ### `git aux apply`
 
