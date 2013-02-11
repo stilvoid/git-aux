@@ -98,7 +98,7 @@ function add(git_root, config, files) {
 
             log.debug("Adding:", relative_path);
 
-            fsutil.copy(path.join(config.basedir, relative_path), path.join(git_root, relative_path)).then(function() {
+            fsutil.cp_a(path.join(config.basedir, relative_path), path.join(git_root, relative_path)).then(function() {
                 exec("git add " + path.join(git_root, relative_path), function(err) {
                     if(err) {
                         log.die("Failed adding file to git", err);
@@ -111,10 +111,16 @@ function add(git_root, config, files) {
     });
 }
 
-function sync(git_root, config, force) {
+function sync(git_root, config) {
     var outer_promise = new Promise();
 
-    fsutil.get_files(git_root).then(function(files) {
+    var stashed;
+
+    Promise.wrap(exec, "git stash -u").then(function(err, stdout) {
+        stashed = !/^No local changes/.test(stdout);
+
+        return fsutil.get_files(git_root);
+    }).then(function(files) {
         var count;
 
         files = files.filter(function(f) {
@@ -152,14 +158,14 @@ function sync(git_root, config, force) {
             }).then(function() {
                 var git_add;
 
-                if(force) {
-                    git_add = spawn("git", ["add", "-u"], {stdio: "inherit"});
-                } else {
-                    git_add = spawn("git", ["add", "-p"], {stdio: "inherit"});
-                }
+                git_add = spawn("git", ["add", "-A"], {stdio: "inherit"});
 
                 git_add.on("exit", function() {
-                    outer_promise.fulfill();
+                    if(stashed) {
+                        Promise.wrap(exec, "git stash pop").then(outer_promise.fulfill);
+                    } else {
+                        outer_promise.fulfill();
+                    }
                 });
             });
         }
@@ -175,7 +181,7 @@ function sync(git_root, config, force) {
 
             fs.exists(path.join(config.basedir, file), function(exists) {
                 if(exists) {
-                    fsutil.fresh_copy(path.join(config.basedir, file), path.join(git_root, file)).then(function() {
+                    fsutil.cp_a(path.join(config.basedir, file), path.join(git_root, file)).then(function() {
                         count--;
 
                         if(count === 0) {
@@ -183,7 +189,7 @@ function sync(git_root, config, force) {
                         }
                     });
                 } else {
-                    fsutil.rm(path.join(git_root, file)).then(function() {
+                    fsutil.rm_r(path.join(git_root, file)).then(function() {
                         count--;
 
                         if(count === 0) {
@@ -200,10 +206,12 @@ function sync(git_root, config, force) {
 }
 
 function apply(git_root, config) {
-    Promise.wrap(exec, "git stash -u").then(function(err, stdout) {
-        var stashed = !/^No local changes/.test(stdout);
+    var stashed;
 
+    Promise.wrap(exec, "git stash -u").then(function(err, stdout) {
         var current_branch, temp_branch, commit;
+
+        stashed = !/^No local changes/.test(stdout);
 
         if(err) {
             log.die("Unable to stash", err);
@@ -218,7 +226,7 @@ function apply(git_root, config) {
 
         return Promise.wrap(exec, "git checkout -b " + temp_branch);
     }).then(function(err) {
-        return sync(git_root, config, true);
+        return sync(git_root, config);
     }).then(function() {
         return Promise.wrap(exec, "git commit -a -m 'Temp'");
     }).then(function(err) {
@@ -253,6 +261,12 @@ function apply(git_root, config) {
                 Promise.wrap(exec, "git checkout " + current_branch).then(function() {
                     return Promise.wrap(exec, "git branch -D " + temp_branch);
                 }).then(function() {
+                    if(stashed) {
+                        return Promise.wrap(exec, "git stash pop");
+                    } else {
+                        return null;
+                    }
+                }).then(function() {
                     console.log("Done");
                 });
             }
@@ -264,7 +278,7 @@ function apply(git_root, config) {
             files.forEach(function(file) {
                 log.debug("Applying: " + file);
 
-                fsutil.copy(path.join(git_root, file), path.join(config.basedir, file)).then(function() {
+                fsutil.cp_a(path.join(git_root, file), path.join(config.basedir, file)).then(function() {
                     count--;
 
                     if(count === 0) {
