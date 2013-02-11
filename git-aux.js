@@ -9,7 +9,7 @@ var util = require("util");
 var fsutil = require("./lib/fsutil");
 var Promise = require("./lib/promise");
 
-var DEBUG = true;
+var DEBUG = false;
 
 // Some standard helpers
 
