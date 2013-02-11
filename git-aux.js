@@ -7,35 +7,8 @@ var fs = require("fs");
 var util = require("util");
 
 var fsutil = require("./lib/fsutil");
+var log = require("./lib/log");
 var Promise = require("./lib/promise");
-
-var DEBUG = false;
-
-// Some standard helpers
-
-function debug() {
-    var args;
-    if(DEBUG) {
-        args = Array.prototype.slice.call(arguments, 0);
-        args.unshift("DEBUG:");
-
-        console.log.apply(this, args);
-    }
-}
-
-function die(message, exception) {
-    if(exception) {
-        message += ": " + exception.message;
-    }
-
-    console.log(message);
-
-    if(DEBUG) {
-        throw exception;
-    }
-
-    process.exit(1);
-}
 
 function help() {
     console.log("usage: git aux <command> [<args>]");
@@ -71,13 +44,13 @@ function get_config(git_root) {
     fs.readFile(path.join(git_root, ".git", "aux", "config.json"), "utf8", function(err, data) {
         if(err) {
             promise.fulfill(null);
-            debug("No config");
+            log.debug("No config");
         } else {
             try {
                 data = JSON.parse(data);
                 promise.fulfill(data);
             } catch(e) {
-                die("Unable to parse git aux config", e);
+                log.die("Unable to parse git aux config", e);
             }
         }
     });
@@ -90,7 +63,7 @@ function save_config(git_root, config) {
 
     fs.writeFile(path.join(git_root, ".git", "aux", "config.json"), JSON.stringify(config, null, 2), function(err) {
         if(err) {
-            die("Unable to save config", err);
+            log.die("Unable to save config", err);
         }
 
         promise.fulfill();
@@ -105,7 +78,7 @@ function init(git_root, basedir) {
     // Make git aux directory
     fs.mkdir(path.join(git_root, ".git", "aux"), function(err) {
         if(err) {
-            die("Couldn't create git aux directory", err);
+            log.die("Couldn't create git aux directory", err);
         }
 
         save_config(git_root, {
@@ -123,17 +96,17 @@ function add(git_root, config, files) {
         if(new RegExp("^" + config.basedir + path.sep).test(relative_path)) {
             relative_path = path.relative(config.basedir, relative_path);
 
-            debug("Adding:", relative_path);
+            log.debug("Adding:", relative_path);
 
             fsutil.copy(path.join(config.basedir, relative_path), path.join(git_root, relative_path)).then(function() {
                 exec("git add " + path.join(git_root, relative_path), function(err) {
                     if(err) {
-                        die("Failed adding file to git", err);
+                        log.die("Failed adding file to git", err);
                     }
                 });
             });
         } else {
-            die(file + " is not within this git aux repo's basedir (" + config.basedir + ")");
+            log.die(file + " is not within this git aux repo's basedir (" + config.basedir + ")");
         }
     });
 }
@@ -162,7 +135,7 @@ function sync(git_root, config, force) {
                         if(files.length === 0) {
                             fs.rmdir(f, function(err) {
                                 if(err) {
-                                    die("Unable to rmdir", err);
+                                    log.die("Unable to rmdir", err);
                                 }
 
                                 promise.fulfill();
@@ -196,7 +169,7 @@ function sync(git_root, config, force) {
         }
 
         files.forEach(function(file) {
-            debug("Syncing: " + file);
+            log.debug("Syncing: " + file);
 
             file = path.relative(git_root, file);
 
@@ -233,7 +206,7 @@ function apply(git_root, config) {
         var current_branch, temp_branch, commit;
 
         if(err) {
-            die("Unable to stash", err);
+            log.die("Unable to stash", err);
         }
 
         // Get current branch
@@ -289,7 +262,7 @@ function apply(git_root, config) {
                     }
 
                     files.forEach(function(file) {
-                        debug("Applying: " + file);
+                        log.debug("Applying: " + file);
 
                         file = path.relative(git_root, file);
 
@@ -320,18 +293,18 @@ get_git_root().then(function(git_root) {
         var command = process.argv[2];
         var args = process.argv.slice(3);
 
-        debug("Config:", config);
+        log.debug("Config:", config);
 
-        debug("Command:", command);
-        debug("Args:", args);
+        log.debug("Command:", command);
+        log.debug("Args:", args);
 
         if(!config && command !== "init") {
-            die("Not a git aux repository");
+            log.die("Not a git aux repository");
         }
 
         if(command === "init") {
             if(config) {
-                die("Already a git aux repository");
+                log.die("Already a git aux repository");
             }
 
             if(args.length !== 1) {
