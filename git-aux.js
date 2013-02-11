@@ -258,7 +258,9 @@ function apply(git_root, config) {
         var git_add = spawn("git", ["add", "-p"], {stdio: "inherit"});
 
         git_add.on("exit", function() {
-            Promise.wrap(exec, "git commit -a -m 'Temp 2'").then(function(err) {
+            Promise.wrap(exec, "git commit -m 'Temp 2'").then(function(err) {
+                return Promise.wrap(exec, "git reset --hard HEAD");
+            }).then(function() {
                 // Copy the files across
 
                 fsutil.get_files(git_root).then(function(files) {
