@@ -1,5 +1,3 @@
-#!/usr/bin/env node
-
 var exec = require("child_process").exec;
 var spawn = require("child_process").spawn;
 var path = require("path");
@@ -9,7 +7,7 @@ var util = require("util");
 var fsutil = require("./lib/fsutil");
 var Promise = require("./lib/promise");
 
-var DEBUG = false;
+var DEBUG = true;
 
 // Some standard helpers
 
@@ -138,7 +136,9 @@ function add(git_root, config, files) {
     });
 }
 
-function sync(git_root, config) {
+function sync(git_root, config, force) {
+    var outer_promise = new Promise();
+
     fsutil.get_files(git_root).then(function(files) {
         var count;
 
@@ -175,7 +175,17 @@ function sync(git_root, config) {
 
                 return promise;
             }).then(function() {
-                spawn("git", ["add", "-p"], {stdio: "inherit"});
+                var git_add;
+
+                if(force) {
+                    git_add = spawn("git", ["add", "-u"], {stdio: "inherit"});
+                } else {
+                    git_add = spawn("git", ["add", "-p"], {stdio: "inherit"});
+                }
+
+                git_add.on("exit", function() {
+                    outer_promise.fulfill();
+                });
             });
         }
 
@@ -210,43 +220,84 @@ function sync(git_root, config) {
 
         });
     });
+
+    return outer_promise;
 }
 
 function apply(git_root, config) {
-    exec("git stash -u", function(err, stdout) {
+    Promise.wrap(exec, "git stash -u").then(function(err, stdout) {
         var stashed = !/^No local changes/.test(stdout);
+
+        var current_branch, temp_branch, commit;
 
         if(err) {
             die("Unable to stash", err);
         }
 
-        fs.readdir(git_root, function(err, files) {
-            var count = files.length - 1;
+        // Get current branch
+        return Promise.wrap(exec, "git branch");
+    }).then(function(err, stdout) {
+        current_branch = /^\*\s+(.*$)/m.exec(stdout)[1];
 
-            function finish() {
-                if(stashed) {
-                    exec("git stash pop");
-                }
-            }
+        temp_branch = "git-aux-temp" + (new String(Math.random()).replace(/^0\./, ""));
 
-            if(count === 0) {
-                finish();
-            }
+        return Promise.wrap(exec, "git checkout -b " + temp_branch);
+    }).then(function(err) {
+        return sync(git_root, config, true);
+    }).then(function() {
+        return Promise.wrap(exec, "git commit -a -m 'Temp'");
+    }).then(function(err) {
+        return Promise.wrap(exec, "git show");
+    }).then(function(err, stdout) {
+        commit = /^commit\s+(.+)$/m.exec(stdout)[1];
+    }).then(function(err) {
+        return Promise.wrap(exec, "git reset --hard " + current_branch);
+    }).then(function(err) {
+        return Promise.wrap(exec, "git reset " + commit);
+    }).then(function(err) {
+        var git_add = spawn("git", ["add", "-p"], {stdio: "inherit"});
 
-            files.forEach(function(file) {
-                if(file !== ".git") {
-                    debug("Syncing: " + file);
+        git_add.on("exit", function() {
+            Promise.wrap(exec, "git commit -a -m 'Temp 2'").then(function(err) {
+                // Copy the files across
 
-                    file = path.relative(git_root, path.join(git_root, file));
+                fsutil.get_files(git_root).then(function(files) {
+                    var count;
 
-                    fsutil.copy(path.join(git_root, file), path.join(config.basedir, file)).then(function() {
-                        count--;
-
-                        if(count === 0) {
-                            finish();
-                        }
+                    files = files.filter(function(f) {
+                        return !new RegExp("^" + path.join(git_root, ".git")).test(f);
                     });
-                }
+
+                    count = files.length;
+
+                    function finish() {
+                        console.log("Applied!");
+
+                        Promise.wrap(exec, "git checkout " + current_branch).then(function() {
+                            return Promise.wrap(exec, "git branch -D " + temp_branch);
+                        }).then(function() {
+                            console.log("Done");
+                        });
+                    }
+
+                    if(count === 0) {
+                        finish();
+                    }
+
+                    files.forEach(function(file) {
+                        debug("Applying: " + file);
+
+                        file = path.relative(git_root, file);
+
+                        fsutil.copy(path.join(git_root, file), path.join(config.basedir, file)).then(function() {
+                            count--;
+
+                            if(count === 0) {
+                                finish();
+                            }
+                        });
+                    });
+                });
             });
         });
     });
