@@ -90,6 +90,8 @@ function init(git_root, basedir) {
 }
 
 function add(git_root, config, files) {
+    var count = files.length;
+
     files.forEach(function(file) {
         var relative_path = path.resolve(process.cwd(), file);
 
@@ -103,6 +105,12 @@ function add(git_root, config, files) {
                     if(err) {
                         log.die("Failed adding file to git", err);
                     }
+
+                    count--;
+
+                    if(count === 0) {
+                        spawn("git", ["status"], {stdio: "inherit"});
+                    }
                 });
             });
         } else {
@@ -111,7 +119,7 @@ function add(git_root, config, files) {
     });
 }
 
-function sync(git_root, config) {
+function sync(git_root, config, force) {
     var outer_promise = new Promise();
 
     var stashed;
@@ -158,15 +166,23 @@ function sync(git_root, config) {
             }).then(function() {
                 var git_add;
 
-                git_add = spawn("git", ["add", "-A"], {stdio: "inherit"});
+                function finish() {
+                    Promise.wrap(exec, "git add -A").then(function() {
+                        if(stashed) {
+                            Promise.wrap(exec, "git stash pop").then(outer_promise.fulfill);
+                        } else {
+                            outer_promise.fulfill();
+                        }
+                    });
+                }
 
-                git_add.on("exit", function() {
-                    if(stashed) {
-                        Promise.wrap(exec, "git stash pop").then(outer_promise.fulfill);
-                    } else {
-                        outer_promise.fulfill();
-                    }
-                });
+                if(!force) {
+                    spawn("git", ["add", "-p"], {stdio: "inherit"}).on("exit", function() {
+                        Promise.wrap(exec, "git reset --hard HEAD").then(finish);
+                    });
+                } else {
+                    finish();
+                }
             });
         }
 
@@ -226,7 +242,7 @@ function apply(git_root, config) {
 
         return Promise.wrap(exec, "git checkout -b " + temp_branch);
     }).then(function(err) {
-        return sync(git_root, config);
+        return sync(git_root, config, true);
     }).then(function() {
         return Promise.wrap(exec, "git commit -a -m 'Temp'");
     }).then(function(err) {
@@ -238,7 +254,15 @@ function apply(git_root, config) {
     }).then(function(err) {
         return Promise.wrap(exec, "git reset " + commit);
     }).then(function(err) {
-        return Promise.wrap(exec, "git add -A");
+        var promise = new Promise();
+        var git_add = spawn("git", ["add", "-p"], {stdio: "inherit"});
+
+        git_add.on("exit", function() {
+            //Promise.wrap(exec, "git add -A") ??
+            promise.fulfill();
+        });
+
+        return promise;
     }).then(function() {
         return Promise.wrap(exec, "git commit -m 'Temp 2'");
     }).then(function(err) {
@@ -256,8 +280,6 @@ function apply(git_root, config) {
             count = files.length;
 
             function finish() {
-                console.log("Applied!");
-
                 Promise.wrap(exec, "git checkout " + current_branch).then(function() {
                     return Promise.wrap(exec, "git branch -D " + temp_branch);
                 }).then(function() {
@@ -336,7 +358,9 @@ get_git_root().then(function(git_root) {
                 process.exit(1);
             }
 
-            sync(git_root, config);
+            sync(git_root, config).then(function() {
+                spawn("git", ["status"], {stdio: "inherit"});
+            });
         } else if(command === "apply") {
             if(args.length !== 0) {
                 help();
