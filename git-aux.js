@@ -98,7 +98,7 @@ function add(git_root, config, files) {
 
             log.debug("Adding:", relative_path);
 
-            fsutil.copy(path.join(config.basedir, relative_path), path.join(git_root, relative_path)).then(function() {
+            fsutil.fresh_copy(path.join(config.basedir, relative_path), path.join(git_root, relative_path)).then(function() {
                 exec("git add " + path.join(git_root, relative_path), function(err) {
                     if(err) {
                         log.die("Failed adding file to git", err);
@@ -175,7 +175,7 @@ function sync(git_root, config, force) {
 
             fs.exists(path.join(config.basedir, file), function(exists) {
                 if(exists) {
-                    fsutil.copy(path.join(config.basedir, file), path.join(git_root, file)).then(function() {
+                    fsutil.fresh_copy(path.join(config.basedir, file), path.join(git_root, file)).then(function() {
                         count--;
 
                         if(count === 0) {
@@ -230,50 +230,46 @@ function apply(git_root, config) {
     }).then(function(err) {
         return Promise.wrap(exec, "git reset " + commit);
     }).then(function(err) {
-        var git_add = spawn("git", ["add", "-p"], {stdio: "inherit"});
+        return Promise.wrap(exec, "git add -A");
+    }).then(function() {
+        return Promise.wrap(exec, "git commit -m 'Temp 2'");
+    }).then(function(err) {
+        return Promise.wrap(exec, "git reset --hard HEAD");
+    }).then(function() {
+        // Copy the files across
 
-        git_add.on("exit", function() {
-            Promise.wrap(exec, "git commit -m 'Temp 2'").then(function(err) {
-                return Promise.wrap(exec, "git reset --hard HEAD");
-            }).then(function() {
-                // Copy the files across
+        Promise.wrap(fs.readdir, git_root).then(function(err, files) {
+            var count;
 
-                fsutil.get_files(git_root).then(function(files) {
-                    var count;
+            files = files.filter(function(f) {
+                return !/^\.git/.test(f);
+            });
 
-                    files = files.filter(function(f) {
-                        return !new RegExp("^" + path.join(git_root, ".git")).test(f);
-                    });
+            count = files.length;
 
-                    count = files.length;
+            function finish() {
+                console.log("Applied!");
 
-                    function finish() {
-                        console.log("Applied!");
+                Promise.wrap(exec, "git checkout " + current_branch).then(function() {
+                    return Promise.wrap(exec, "git branch -D " + temp_branch);
+                }).then(function() {
+                    console.log("Done");
+                });
+            }
 
-                        Promise.wrap(exec, "git checkout " + current_branch).then(function() {
-                            return Promise.wrap(exec, "git branch -D " + temp_branch);
-                        }).then(function() {
-                            console.log("Done");
-                        });
-                    }
+            if(count === 0) {
+                finish();
+            }
+
+            files.forEach(function(file) {
+                log.debug("Applying: " + file);
+
+                fsutil.copy(path.join(git_root, file), path.join(config.basedir, file)).then(function() {
+                    count--;
 
                     if(count === 0) {
                         finish();
                     }
-
-                    files.forEach(function(file) {
-                        log.debug("Applying: " + file);
-
-                        file = path.relative(git_root, file);
-
-                        fsutil.copy(path.join(git_root, file), path.join(config.basedir, file)).then(function() {
-                            count--;
-
-                            if(count === 0) {
-                                finish();
-                            }
-                        });
-                    });
                 });
             });
         });
