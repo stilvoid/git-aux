@@ -98,7 +98,7 @@ function add(git_root, config, files) {
 
             log.debug("Adding:", relative_path);
 
-            fsutil.fresh_copy(path.join(config.basedir, relative_path), path.join(git_root, relative_path)).then(function() {
+            fsutil.copy(path.join(config.basedir, relative_path), path.join(git_root, relative_path)).then(function() {
                 exec("git add " + path.join(git_root, relative_path), function(err) {
                     if(err) {
                         log.die("Failed adding file to git", err);
