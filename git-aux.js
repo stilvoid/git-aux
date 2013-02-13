@@ -167,7 +167,9 @@ function sync(git_root, config, force) {
                 var git_add;
 
                 function finish() {
-                    Promise.wrap(exec, "git add -A").then(function() {
+                    Promise.wrap(exec, "git add $(git ls-files -o --exclude-standard)").then(function() {
+                        return Promise.wrap(exec, "git checkout $(git ls-files --exclude-standard)");
+                    }).then(function() {
                         if(stashed) {
                             Promise.wrap(exec, "git stash pop").then(outer_promise.fulfill);
                         } else {
@@ -177,11 +179,9 @@ function sync(git_root, config, force) {
                 }
 
                 if(!force) {
-                    spawn("git", ["add", "-p"], {stdio: "inherit"}).on("exit", function() {
-                        Promise.wrap(exec, "git reset --hard HEAD").then(finish);
-                    });
+                    spawn("git", ["add", "-p"], {stdio: "inherit"}).on("exit", finish);
                 } else {
-                    finish();
+                    Promise.wrap(exec, "git add -u").then(finish);
                 }
             });
         }
@@ -258,8 +258,7 @@ function apply(git_root, config) {
         var git_add = spawn("git", ["add", "-p"], {stdio: "inherit"});
 
         git_add.on("exit", function() {
-            //Promise.wrap(exec, "git add -A") ??
-            promise.fulfill();
+            Promise.wrap(exec, "git add $(git ls-files -o --exclude-standard)").then(promise.fulfill);
         });
 
         return promise;
