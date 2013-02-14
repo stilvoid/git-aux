@@ -55,6 +55,10 @@ ga_init() {
         die "This repo is already initialised for use with aux: $(aux_dir)"
     fi
 
+    if [ -z "$1" -o ! -d "$1" ]; then
+        die "You must supply a directory"
+    fi
+
     mkdir -p $(git_root)/.git/aux
     echo $(readlink -f $1) > $(git_root)/.git/aux/config
     update_aux
