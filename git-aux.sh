@@ -4,9 +4,10 @@ ga_help() {
     echo "usage: $0 [command] <[arguments]>"
     echo
     echo "Commands:"
-    echo "   init    Do a thing"
-    echo "   sync    Do a thing"
-    echo "   apply   Do a thing"
+    echo "   init [dir]      Initialise git aux to use [dir] as the aux directory"
+    echo "   add [file(s)]   Add files from the aux directory to the repo"
+    echo "   sync            Synchronise changes from the aux directory to the repo"
+    echo "   apply           Apply changes from the repo to the aux directory"
 }
 
 die() {
