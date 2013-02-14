@@ -30,8 +30,17 @@ aux_dir() {
     cat $(git_root)/.git/aux/config || die "Not a git aux repository"
 }
 
+update_aux() {
+    (for file in $(git ls-files); do 
+        if [ "$file" != ".gitaux" ]; then
+            echo $file:$(stat -c "%a" $file)
+        fi
+    done) > $(git_root)/.gitaux
+    git add $(git_root)/.gitaux
+}
+
 repo_files() {
-    find $(git_root) -type f -not -path "$(git_root)/.git/*"
+    find $(git_root) -type f -not -path "$(git_root)/.git/*" -not -path "$(git_root)/.gitaux"
 }
 
 relative() {
@@ -44,13 +53,16 @@ relative() {
 ga_init() {
     if [ -e $(git_root)/.git/aux ]; then
         die "This repo is already initialised for use with aux: $(aux_dir)"
-    else
-        mkdir -p $(git_root)/.git/aux
-        echo $(readlink -f $1) > $(git_root)/.git/aux/config
     fi
+
+    mkdir -p $(git_root)/.git/aux
+    echo $(readlink -f $1) > $(git_root)/.git/aux/config
+    update_aux
+
+    echo "Done"
 }
 
-ga_add_all() {
+add_all() {
     # Add files to repo
     if [ "$1" == "-f" ]; then
         git add -u
@@ -72,11 +84,15 @@ ga_add() {
         if [ -z "$(find "$file" -type f -path "$(aux_dir)*")" ]; then
             die "$file is not in the aux root"
         else
-            echo "Adding $file"
+            echo "Adding $file..."
             cp -af "$file" "$(git_root)/$rel_path"
             git add "$(git_root)/$rel_path"
         fi
     done
+
+    update_aux
+
+    echo "Done"
 }
 
 ga_sync() {
@@ -90,7 +106,9 @@ ga_sync() {
         fi
     done
 
-    ga_add_all $@
+    add_all $@
+
+    update_aux
 
     # Show status
     git status
@@ -102,37 +120,9 @@ ga_apply() {
 
     local stashed=true
 
-    echo $current_branch $temp_branch
-
     if [ "$(git stash save -u)" == "No local changes to save" ]; then
         stashed=false
     fi
-
-    echo git checkout -b "$temp_branch"
-    git checkout -b "$temp_branch"
-
-    ga_sync -f
-
-    echo git commit -a -m "Temp"
-    git commit -a -m "Temp"
-
-    local last_commit=$(last_commit)
-
-    echo git reset --hard "$current_branch"
-    git reset --hard "$current_branch"
-
-    echo git reset "$last_commit"
-    git reset "$last_commit"
-
-    ga_add_all
-
-    echo git commit -m "Temp 2"
-    git commit -m "Temp 2"
-
-    echo git reset --hard HEAD
-    git reset --hard HEAD
-
-    ga_add_all
 
     # Copy the files home
     for file in $(repo_files); do
@@ -143,14 +133,17 @@ ga_apply() {
             rm -r "$(dirname $(aux_dir)/$file)"
             mkdir -p "$(dirname $(aux_dir)/$file)"
         }
+        echo $file...
         cp -af "$(git_root)/$file" "$(aux_dir)/$file"
     done
 
-    echo git checkout "$current_branch"
-    git checkout "$current_branch"
+    # Apply permissions
+    for line in $(cat $(git_root)/.gitaux); do
+        local path=$(echo $line | sed -e 's/:[0-9]*$//')
+        local permissions=$(echo $line | sed -e 's/^.*:\([0-9]*\)$/\1/')
 
-    echo git branch -D "$temp_branch"
-    git branch -D "$temp_branch"
+        chmod $permissions $(aux_dir)/$path
+    done
 
     if $stashed; then
         git stash pop
