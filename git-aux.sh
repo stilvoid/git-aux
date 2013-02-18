@@ -1,5 +1,7 @@
 #!/bin/bash
 
+set -e
+
 ga_help() {
     echo "usage: $0 [command] <[arguments]>"
     echo
@@ -11,24 +13,24 @@ ga_help() {
 }
 
 die() {
-    echo $@
-    exit 1
+    echo $@ 1>&2
+    kill 0
 }
 
 last_commit() {
-    echo $(git show |grep ^commit | cut -d ' ' -f 2) || die "Not a git repository"
+    git show | grep ^commit | cut -d ' ' -f 2
 }
 
 current_branch() {
-    echo $(git branch | grep "^*" | sed -e 's/^\*\s*//') || die "Not a git repository"
+    git branch | grep "^*" | sed -e 's/^\*\s*//'
 }
 
 git_root() {
-    git rev-parse --show-toplevel || die "Not a git repository"
+    git rev-parse --show-toplevel
 }
 
 aux_dir() {
-    cat $(git_root)/.git/aux/config || die "Not a git aux repository"
+    cat $(git_root)/.git/aux/config 2>/dev/null || die "Not a git aux repository"
 }
 
 update_aux() {
