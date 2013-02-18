@@ -173,7 +173,14 @@ case $command in
     init) ga_init ${args[0]} ;;
     add) ga_add $args ;;
     sync) ga_sync ;;
-    apply) ga_apply ;;
+    apply)
+        read -p "Are you sure you want to apply changes to the aux directory? (y/n) " choice
+        if [[ "$choice" =~ ^[Yy] ]]; then
+            ga_apply
+        else
+            echo "Aborted"
+        fi
+        ;;
     diff) ga_diff ;;
     *) ga_help ;;
 esac
