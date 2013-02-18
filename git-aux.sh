@@ -167,6 +167,8 @@ command=$1
 shift
 args=$@
 
+git branch &>/dev/null || die "Not a git repository"
+
 case $command in
     init) ga_init ${args[0]} ;;
     add) ga_add $args ;;
