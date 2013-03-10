@@ -50,7 +50,7 @@ relative() {
     local file=$1
     local dir=$2
 
-    echo $file | sed -e "s/^$(echo $dir | sed -e 's/\//\\\//g')\///"
+    echo $file | sed -e "s/^$(echo $dir | sed -e 's/\//\\\//g')//"
 }
 
 ga_init() {
