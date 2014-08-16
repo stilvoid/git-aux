@@ -50,7 +50,7 @@ To manage files in your home dir with git aux, do this:
 
 * `git aux add /home/bungle/.vimrc /home/bungle/todo_list.txt`
 
-* `git commit -m "Added vimrc and my todo list`
+* `git commit -m "Add vimrc and todo list"`
 
 ### Push to a remote
 
