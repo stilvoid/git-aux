@@ -2,6 +2,8 @@
 
 set -e
 
+VERSION=0.3
+
 ga_help() {
     echo "usage: $0 [command] <[arguments]>"
     echo
@@ -181,6 +183,7 @@ case $command in
         fi
         ;;
     diff) ga_diff ;;
+    --version) echo git aux version $VERSION ;;
     *) ga_help ;;
 esac
 
