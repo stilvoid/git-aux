@@ -10,6 +10,8 @@ ga_help() {
     echo "   add [file(s)]   Add files from the aux directory to the repo"
     echo "   sync            Synchronise changes from the aux directory to the repo"
     echo "   apply           Apply changes from the repo to the aux directory"
+
+    exit
 }
 
 die() {
@@ -30,12 +32,12 @@ git_root() {
 }
 
 aux_dir() {
-    cat $(git_root)/.git/aux/config 2>/dev/null || die "Not a git aux repository"
+    git config aux.home || die "Not a git aux repository"
 }
 
 update_aux() {
     (for file in $(git ls-files); do 
-        if [ "$file" != ".gitaux" ]; then
+        if [ "$file" != ".gitaux" -a -e "$file" ]; then
             echo $file:$(stat -c "%a" $file)
         fi
     done) > $(git_root)/.gitaux
@@ -54,16 +56,13 @@ relative() {
 }
 
 ga_init() {
-    if [ -e $(git_root)/.git/aux ]; then
-        die "This repo is already initialised for use with aux: $(aux_dir)"
-    fi
+    git config aux.home >/dev/null && die "This repository is already initialised for use with git-aux: $(aux_dir)"
 
     if [ -z "$1" -o ! -d "$1" ]; then
-        die "You must supply a directory"
+        die "You must supply a directory path"
     fi
 
-    mkdir -p $(git_root)/.git/aux
-    echo $(readlink -f $1) > $(git_root)/.git/aux/config
+    git config aux.home $(readlink -f $1)
     update_aux
 
     echo "Done"
@@ -164,7 +163,7 @@ ga_diff() {
 }
 
 command=$1
-shift
+shift || ga_help
 args=$@
 
 git branch &>/dev/null || die "Not a git repository"
